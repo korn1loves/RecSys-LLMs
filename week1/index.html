@@ -156,15 +156,15 @@
             const lunchMenu = [
                 { name: "Pizza", icon: "fas fa-pizza-slice" },
                 { name: "Sushi", icon: "fas fa-fish" },
-                { name: "Burger", icon: "fas fa-hamburger" },
+                { name: "Burger", icon: "fas fa-burger" },
                 { name: "Salad", icon: "fas fa-leaf" },
-                { name: "Tacos", icon: "fas fa-utensil-spoon" },
-                { name: "Ramen", icon: "fas fa-bowl-hot" },
+                { name: "Tacos", icon: "fas fa-spoon" },
+                { name: "Ramen", icon: "fas fa-bowl-food" },
                 { name: "Sandwich", icon: "fas fa-bread-slice" },
-                { name: "Pasta", icon: "fas fa-pasta" },
+                { name: "Pasta", icon: "fas fa-plate-wheat" },
                 { name: "Curry", icon: "fas fa-mortar-pestle" },
                 { name: "Steak", icon: "fas fa-drumstick-bite" },
-                { name: "Soup", icon: "fas fa-bowl" },
+                { name: "Soup", icon: "fas fa-mug-hot" },
                 { name: "BBQ", icon: "fas fa-fire" }
             ];
             
@@ -184,6 +184,14 @@
                 // After a short delay, show the selected lunch
                 setTimeout(() => {
                     foodIcon.innerHTML = `<i class="${selectedLunch.icon}"></i>`;
+
+                    // Fallback: if this class has no matching glyph in the loaded icon set, use a default icon
+                    const iconEl = foodIcon.querySelector('i');
+                    const glyph = getComputedStyle(iconEl, '::before').content;
+                    if (['none', 'normal'].includes(glyph)) {
+                        iconEl.className = 'fas fa-utensils';
+                    }
+
                     foodName.textContent = selectedLunch.name;
                     
                     // Add animation class

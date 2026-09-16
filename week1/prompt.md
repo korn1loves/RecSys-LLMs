@@ -103,3 +103,32 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 6.  **Go to your repo Settings -> Pages ->** Select source `Deploy from a branch` -> Branch `main` / `root` and click Save. Your page will be live at `https://[your-username].github.io/random-lunch-generator` in a minute.
 
 Would you like me to help you write the initial code for `index.html`, `style.css`, and `script.js` next?
+
+---
+
+## Q: Follow-up — fix icons that sometimes don't display
+
+Some dishes in the lunch menu show their name but no icon. Before touching the icon list again, apply these constraints:
+
+1. **Pin the icon set version.** The page loads Font Awesome Free 6.4.0 from
+   `https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css`. Only use icon
+   class names that exist in *that exact* stylesheet — do not assume an icon exists just because
+   its name sounds plausible, and do not assume Pro-only icons are available.
+2. **Verify every icon name before using it**, e.g. by checking
+   `https://fontawesome.com/search?ic=free` or by grepping the loaded CSS file for
+   `.fa-<name>:before`. `fa-bowl-hot`, `fa-bowl`, and `fa-pasta` are examples of names that look
+   right but don't exist in Font Awesome Free 6.4.0 — they silently render nothing, with no
+   console error. Also check that the chosen glyph is semantically correct (e.g. `fa-bowl-rice`
+   renders a rice bowl specifically — wrong choice for a generic "soup" dish).
+3. **Prefer current Font Awesome 6 canonical names** over old v4/v5 aliases (e.g. `fa-burger`
+   over `fa-hamburger`, `fa-spoon` over `fa-utensil-spoon`), even when the alias still resolves.
+4. **Add a defensive fallback in the code itself**, not just a careful icon list: after setting an
+   icon's class, check whether it actually resolved to a glyph (e.g. via
+   `getComputedStyle(el, '::before').content`, treating both `'none'` and `'normal'` as
+   "no glyph" since different engines report the absence differently), and if not, fall back to a
+   known-good default icon such as `fa-utensils`.
+   **Limitation:** this only guards against an invalid/unverified icon *name*. It does not help if
+   the Font Awesome stylesheet itself fails to load (CDN down, network blocked, etc.) — in that
+   case `fa-utensils` has no glyph either, and every icon (including the fallback) will be blank.
+   It does not "always degrade gracefully"; it only degrades gracefully for the specific bug seen
+   here (bad icon names against a successfully loaded icon set).
