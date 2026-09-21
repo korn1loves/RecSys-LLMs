@@ -1,16 +1,13 @@
 // Initialize the application when the window loads
-window.onload = async function() {
+window.onload = async function () {
+    const resultElement = document.getElementById('result');
     try {
-        // Display loading message
-        const resultElement = document.getElementById('result');
         resultElement.textContent = "Loading movie data...";
         resultElement.className = 'loading';
-        
-        // Load data
+
         await loadData();
-        
-        // Populate dropdown and update status
-        populateMoviesDropdown();
+
+        populateAllDropdowns();
         resultElement.textContent = "Data loaded. Please select a movie.";
         resultElement.className = 'success';
     } catch (error) {
@@ -19,106 +16,162 @@ window.onload = async function() {
     }
 };
 
-// Populate the movies dropdown with sorted movie titles
-function populateMoviesDropdown() {
-    const selectElement = document.getElementById('movie-select');
-    
-    // Clear existing options except the first placeholder
-    while (selectElement.options.length > 1) {
-        selectElement.remove(1);
-    }
-    
-    // Sort movies alphabetically by title
+const MOVIE_SELECT_IDS = ['movie-select', 'profile-select-1', 'profile-select-2', 'profile-select-3'];
+
+// Populate every movie <select> (the item-to-item picker and the 3 profile
+// pickers) with the same sorted option list.
+function populateAllDropdowns() {
     const sortedMovies = [...movies].sort((a, b) => a.title.localeCompare(b.title));
-    
-    // Add movies to dropdown
-    sortedMovies.forEach(movie => {
-        const option = document.createElement('option');
-        option.value = movie.id;
-        option.textContent = movie.title;
-        selectElement.appendChild(option);
-    });
+
+    // A handful of titles repeat under different ids -- an artifact of
+    // u.item itself (e.g. two separate entries both called
+    // "Chasing Amy (1997)"), not something this app can merge. Disambiguate
+    // only those specific options so two entries never look identical.
+    const titleCounts = new Map();
+    for (const movie of movies) {
+        titleCounts.set(movie.title, (titleCounts.get(movie.title) || 0) + 1);
+    }
+
+    for (const selectId of MOVIE_SELECT_IDS) {
+        const selectElement = document.getElementById(selectId);
+        if (!selectElement) continue;
+
+        while (selectElement.options.length > 1) {
+            selectElement.remove(1);
+        }
+
+        sortedMovies.forEach(movie => {
+            const option = document.createElement('option');
+            option.value = movie.id;
+            option.textContent = titleCounts.get(movie.title) > 1
+                ? `${movie.title} (id ${movie.id})`
+                : movie.title;
+            selectElement.appendChild(option);
+        });
+    }
 }
 
-// Main recommendation function
-function getRecommendations() {
-    const resultElement = document.getElementById('result');
-    
-    try {
-        // Step 1: Get user input
-        const selectElement = document.getElementById('movie-select');
-        const selectedMovieId = parseInt(selectElement.value);
-        
-        if (isNaN(selectedMovieId)) {
-            resultElement.textContent = "Please select a movie first.";
-            resultElement.className = 'error';
-            return;
-        }
-        
-        // Step 2: Find the liked movie
-        const likedMovie = movies.find(movie => movie.id === selectedMovieId);
-        if (!likedMovie) {
-            resultElement.textContent = "Error: Selected movie not found in database.";
-            resultElement.className = 'error';
-            return;
-        }
-        
-        // Show loading message while processing
-        resultElement.textContent = "Calculating recommendations...";
-        resultElement.className = 'loading';
-        
-        // Use setTimeout to allow the UI to update before heavy computation
-        setTimeout(() => {
-            try {
-                // Step 3: Prepare for similarity calculation
-                const likedGenres = new Set(likedMovie.genres);
-                const candidateMovies = movies.filter(movie => movie.id !== likedMovie.id);
-                
-                // Step 4: Calculate Jaccard similarity scores
-                const scoredMovies = candidateMovies.map(candidate => {
-                    const candidateGenres = new Set(candidate.genres);
-                    
-                    // Calculate intersection
-                    const intersection = new Set(
-                        [...likedGenres].filter(genre => candidateGenres.has(genre))
-                    );
-                    
-                    // Calculate union
-                    const union = new Set([...likedGenres, ...candidateGenres]);
-                    
-                    // Calculate Jaccard similarity
-                    const score = union.size > 0 ? intersection.size / union.size : 0;
-                    
-                    return {
-                        ...candidate,
-                        score: score
-                    };
-                });
-                
-                // Step 5: Sort by score in descending order
-                scoredMovies.sort((a, b) => b.score - a.score);
-                
-                // Step 6: Select top recommendations
-                const topRecommendations = scoredMovies.slice(0, 2);
-                
-                // Step 7: Display results
-                if (topRecommendations.length > 0) {
-                    const recommendationTitles = topRecommendations.map(movie => movie.title);
-                    resultElement.textContent = `Because you liked "${likedMovie.title}", we recommend: ${recommendationTitles.join(', ')}`;
-                    resultElement.className = 'success';
-                } else {
-                    resultElement.textContent = `No recommendations found for "${likedMovie.title}".`;
-                    resultElement.className = 'error';
-                }
-            } catch (error) {
-                console.error('Error in recommendation calculation:', error);
-                resultElement.textContent = "An error occurred while calculating recommendations.";
-                resultElement.className = 'error';
-            }
-        }, 100);
-    } catch (error) {
-        console.error('Error in getRecommendations:', error);
-        resultElement.textContent = "An unexpected error occurred.";
-        resultElement.className = 'error';
+// --- Shared computation lock --------------------------------------------
+// Both recommendation modes write to the same #result element and can be
+// triggered in quick succession. A single pending-timer id plus disabling
+// both buttons means a new run cancels any run still in flight instead of
+// racing it and overwriting the result with a stale answer.
+let pendingTimeoutId = null;
+
+function getButtons() {
+    return [document.getElementById('recommend-btn'), document.getElementById('profile-btn')]
+        .filter(Boolean);
+}
+
+function beginComputation(loadingMessage) {
+    if (pendingTimeoutId !== null) {
+        clearTimeout(pendingTimeoutId);
+        pendingTimeoutId = null;
     }
+    getButtons().forEach(btn => { btn.disabled = true; });
+
+    const resultElement = document.getElementById('result');
+    resultElement.textContent = loadingMessage;
+    resultElement.className = 'loading';
+}
+
+function finishComputation(message, className) {
+    pendingTimeoutId = null;
+    getButtons().forEach(btn => { btn.disabled = false; });
+
+    const resultElement = document.getElementById('result');
+    resultElement.textContent = message;
+    resultElement.className = className;
+}
+
+function showImmediateError(message) {
+    getButtons().forEach(btn => { btn.disabled = false; });
+    const resultElement = document.getElementById('result');
+    resultElement.textContent = message;
+    resultElement.className = 'error';
+}
+
+// Item-to-item mode: recommend movies similar to a single selected movie.
+function getRecommendations() {
+    const selectElement = document.getElementById('movie-select');
+    const selectedMovieId = parseInt(selectElement.value, 10);
+
+    if (isNaN(selectedMovieId)) {
+        showImmediateError("Please select a movie first.");
+        return;
+    }
+
+    const likedMovie = movies.find(movie => movie.id === selectedMovieId);
+    if (!likedMovie) {
+        showImmediateError("Error: Selected movie not found in database.");
+        return;
+    }
+
+    beginComputation("Calculating recommendations...");
+
+    pendingTimeoutId = setTimeout(() => {
+        try {
+            const excludeIds = new Set([likedMovie.id]);
+            const top5 = Recommender.rankCandidates(movies, likedMovie.vector, movieStats, excludeIds, 5);
+
+            if (top5.length > 0) {
+                const titles = top5.map(movie => movie.title);
+                finishComputation(
+                    `Because you liked "${likedMovie.title}", we recommend: ${titles.join(', ')}`,
+                    'success'
+                );
+            } else {
+                finishComputation(`No recommendations found for "${likedMovie.title}".`, 'error');
+            }
+        } catch (error) {
+            console.error('Error in recommendation calculation:', error);
+            finishComputation("An error occurred while calculating recommendations.", 'error');
+        }
+    }, 100);
+}
+
+// Profile mode: recommend movies similar to the average genre vector of 3
+// movies the user says they've watched.
+function getProfileRecommendations() {
+    const ids = ['profile-select-1', 'profile-select-2', 'profile-select-3']
+        .map(id => parseInt(document.getElementById(id).value, 10));
+
+    if (ids.some(id => isNaN(id))) {
+        showImmediateError("Please select 3 movies to build your profile.");
+        return;
+    }
+    if (new Set(ids).size !== ids.length) {
+        showImmediateError("Please select 3 different movies.");
+        return;
+    }
+
+    const watchedMovies = ids.map(id => movies.find(movie => movie.id === id));
+    if (watchedMovies.some(movie => !movie)) {
+        showImmediateError("Error: one of the selected movies was not found in database.");
+        return;
+    }
+
+    beginComputation("Calculating profile recommendations...");
+
+    pendingTimeoutId = setTimeout(() => {
+        try {
+            const profileVector = Recommender.buildProfileVector(watchedMovies.map(movie => movie.vector));
+            const excludeIds = new Set(watchedMovies.map(movie => movie.id));
+            const top5 = Recommender.rankCandidates(movies, profileVector, movieStats, excludeIds, 5);
+
+            if (top5.length > 0) {
+                const watchedTitles = watchedMovies.map(movie => movie.title).join(', ');
+                const titles = top5.map(movie => movie.title);
+                finishComputation(
+                    `Based on your profile (${watchedTitles}), we recommend: ${titles.join(', ')}`,
+                    'success'
+                );
+            } else {
+                finishComputation("No profile recommendations found.", 'error');
+            }
+        } catch (error) {
+            console.error('Error in profile recommendation calculation:', error);
+            finishComputation("An error occurred while calculating profile recommendations.", 'error');
+        }
+    }, 100);
 }

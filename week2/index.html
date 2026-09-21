@@ -10,19 +10,34 @@
     <div class="container">
         <h1>Content-Based Movie Recommender</h1>
         <p>Select a movie you like, and we'll find similar ones for you!</p>
-        
+
         <div class="controls">
-            <select id="movie-select">
+            <select id="movie-select" class="movie-picker">
                 <option value="" disabled selected>Select a movie</option>
             </select>
-            <button id="recommend-btn" onclick="getRecommendations()">Get Recommendations</button>
+            <button id="recommend-btn" class="action-btn" onclick="getRecommendations()">Get Recommendations</button>
         </div>
-        
+
+        <div class="controls profile-controls">
+            <p>Or build a taste profile from 3 movies you've watched:</p>
+            <select id="profile-select-1" class="movie-picker">
+                <option value="" disabled selected>Select movie 1</option>
+            </select>
+            <select id="profile-select-2" class="movie-picker">
+                <option value="" disabled selected>Select movie 2</option>
+            </select>
+            <select id="profile-select-3" class="movie-picker">
+                <option value="" disabled selected>Select movie 3</option>
+            </select>
+            <button id="profile-btn" class="action-btn" onclick="getProfileRecommendations()">Get Profile Recommendations</button>
+        </div>
+
         <div id="result-box">
             <p id="result">Please wait, loading data...</p>
         </div>
     </div>
 
+    <script src="recommender.js"></script>
     <script src="data.js"></script>
     <script src="script.js"></script>
 </body>

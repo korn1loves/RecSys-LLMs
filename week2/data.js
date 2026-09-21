@@ -1,33 +1,42 @@
-// Global variables for storing movie and rating data
+// Data loading module: fetches u.item/u.data and hands the raw text to the
+// shared parsing logic in recommender.js, so the browser app and
+// analysis.js can never parse the files differently.
+
 let movies = [];
 let ratings = [];
-
-// Genre names as defined in the u.item file
-const genreNames = [
-    "Action", "Adventure", "Animation", "Children's", "Comedy",
-    "Crime", "Documentary", "Drama", "Fantasy", "Film-Noir",
-    "Horror", "Musical", "Mystery", "Romance", "Sci-Fi",
-    "Thriller", "War", "Western"
-];
+let movieStats = new Map();
 
 // Primary function to load data from files
 async function loadData() {
+    // Reset so loadData() is safe to call more than once (e.g. a future
+    // "reload data" action) instead of appending duplicate entries.
+    movies = [];
+    ratings = [];
+    movieStats = new Map();
+
     try {
-        // Load and parse movie data
+        // u.item is Latin-1 (ISO-8859-1) encoded -- e.g. id 543 is
+        // "Mis\xe9rables, Les (1995)" -- so it must be decoded explicitly.
+        // Response.text() defaults to UTF-8 and would corrupt every
+        // accented title (0xE9 is not valid UTF-8 on its own).
         const moviesResponse = await fetch('u.item');
         if (!moviesResponse.ok) {
             throw new Error(`Failed to load movie data: ${moviesResponse.status}`);
         }
-        const moviesText = await moviesResponse.text();
-        parseItemData(moviesText);
+        const moviesBuffer = await moviesResponse.arrayBuffer();
+        const moviesText = new TextDecoder('iso-8859-1').decode(moviesBuffer);
+        movies = Recommender.parseItemData(moviesText);
 
-        // Load and parse rating data
+        // u.data is plain ASCII (ids, tabs, a rating digit, a timestamp),
+        // so the default UTF-8 text decoding is fine here.
         const ratingsResponse = await fetch('u.data');
         if (!ratingsResponse.ok) {
             throw new Error(`Failed to load rating data: ${ratingsResponse.status}`);
         }
         const ratingsText = await ratingsResponse.text();
-        parseRatingData(ratingsText);
+        ratings = Recommender.parseRatingData(ratingsText);
+
+        movieStats = Recommender.computeMovieStats(ratings);
     } catch (error) {
         console.error('Error loading data:', error);
         const resultElement = document.getElementById('result');
@@ -36,45 +45,5 @@ async function loadData() {
             resultElement.className = 'error';
         }
         throw error; // Re-throw to allow script.js to handle the error
-    }
-}
-
-// Parse movie data from u.item format
-function parseItemData(text) {
-    const lines = text.split('\n');
-    
-    for (const line of lines) {
-        if (line.trim() === '') continue;
-        
-        const fields = line.split('|');
-        if (fields.length < 5) continue; // Skip invalid lines
-        
-        const id = parseInt(fields[0]);
-        const title = fields[1];
-        
-        // Extract genres (last 19 fields)
-        const genreValues = fields.slice(5, 24).map(value => parseInt(value));
-        const genres = genreNames.filter((_, index) => genreValues[index] === 1);
-        
-        movies.push({ id, title, genres });
-    }
-}
-
-// Parse rating data from u.data format
-function parseRatingData(text) {
-    const lines = text.split('\n');
-    
-    for (const line of lines) {
-        if (line.trim() === '') continue;
-        
-        const fields = line.split('\t');
-        if (fields.length < 4) continue; // Skip invalid lines
-        
-        const userId = parseInt(fields[0]);
-        const itemId = parseInt(fields[1]);
-        const rating = parseFloat(fields[2]);
-        const timestamp = parseInt(fields[3]);
-        
-        ratings.push({ userId, itemId, rating, timestamp });
     }
 }

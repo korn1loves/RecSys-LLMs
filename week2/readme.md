@@ -1,6 +1,6 @@
 You are an expert full-stack web developer who creates robust, well-commented, and modular web applications using only vanilla HTML, CSS, and JavaScript.
 
-Your task is to generate the complete code for a "Content-Based Movie Recommender" web application based on the detailed specifications below. The application logic will be split into two separate JavaScript files: `data.js` for data loading and parsing, and `script.js` for UI and recommendation logic. Please provide the code for each of the four files—`index.html`, `style.css`, `data.js`, and `script.js`—separately and clearly labeled.
+Your task is to generate the complete code for a "Content-Based Movie Recommender" web application based on the detailed specifications below. The application logic is split into three JavaScript files: `recommender.js` for the pure parsing/scoring/ranking logic (shared with an offline Node analysis script, so it must not touch the DOM or any browser-only API), `data.js` for fetching the data files and handing their text to `recommender.js`, and `script.js` for UI wiring. Please provide the code for each of the five files -- `index.html`, `style.css`, `recommender.js`, `data.js`, and `script.js` -- separately and clearly labeled.
 
 ---
 
@@ -8,86 +8,82 @@ Your task is to generate the complete code for a "Content-Based Movie Recommende
 
 #### **1. Overall Goal**
 
-Build a single-page web application that recommends movies. The application will use `data.js` to load and parse movie and rating data from local files (`u.item`, `u.data`). The `script.js` file will then use this parsed data to populate the UI and calculate content-based recommendations using the Jaccard similarity index when a user makes a selection.
+Build a single-page web application that recommends movies from the MovieLens 100K dataset (`u.item`, `u.data`), using **cosine similarity over genre vectors**. Support two modes:
+- **Item-to-item:** pick one movie you like, get the Top-5 most similar movies.
+- **Profile:** pick 3 movies you've watched, get the Top-5 movies most similar to the *average* of their genre vectors.
 
-#### **2. File `index.html` - The Application Structure**
+#### **2. Source data -- read this before writing any parsing code**
 
--   **DOCTYPE and Language:** The document should start with `<!DOCTYPE html>` and the `<html>` tag should specify `lang="en"`.
--   **Title:** The page title should be "Content-Based Movie Recommender".
--   **Main Heading:** Include an `<h1>` with the text "Content-Based Movie Recommender".
--   **Instructions:** Add a `<p>` tag with instructions like, "Select a movie you like, and we'll find similar ones for you!"
--   **Dropdown Menu:** Include a `<select>` element with the ID `movie-select`. This will be populated dynamically by JavaScript.
--   **Button:** Include a `<button>` with the text "Get Recommendations". When clicked, it must call the `getRecommendations()` JavaScript function.
--   **Result Display Area:** Include a `<div>` with the ID `result-box`. Inside this div, add a `<p>` tag with the ID `result`. This will be used to show loading messages and the final recommendations.
--   **File Linking:** This is a critical step. At the end of the `<body>`, link to **both** JavaScript files. `data.js` must be loaded **before** `script.js` because `script.js` depends on the functions and variables defined in `data.js`.
+- `u.item` is pipe (`|`) delimited, 24 fields per line: `id | title | release date | video release date | IMDb URL | unknown-genre-flag | 18 named genre flags (Action..Western, in that exact order)`. There are **19** genre flags in total (fields 6-24, 1-indexed) but only **18** of them are real genres -- the first one (field 6) is a placeholder "unknown" flag that is not a genre and must be **dropped**, not zipped against the 18 genre names. Concretely: take `fields[6..23]` (0-indexed slice `fields.slice(6, 24)`), and match those 18 values 1:1 against the 18-name genre list `Action, Adventure, Animation, Children's, Comedy, Crime, Documentary, Drama, Fantasy, Film-Noir, Horror, Musical, Mystery, Romance, Sci-Fi, Thriller, War, Western`.
+- `u.item` is **Latin-1 (ISO-8859-1) encoded**, not UTF-8 (e.g. movie id 543 is `Misérables, Les (1995)`, stored with raw byte `0xE9` for "é"). It must be decoded explicitly with that charset (e.g. read as an `ArrayBuffer` and decode with `TextDecoder('iso-8859-1')`); do not rely on `Response.text()`'s default UTF-8 decoding, which would corrupt every accented title.
+- `u.item` contains a small number of movies with **all 18 named-genre flags set to 0** (only the dropped "unknown" flag is set) -- e.g. id 267 and id 1373. These movies legitimately have an empty genre vector; any similarity computation must treat this as "no signal" (score 0), never divide by zero.
+- `u.item` also contains a handful of **duplicate titles** under different ids (e.g. two different entries both titled `"Chasing Amy (1997)"`). The UI must keep both selectable and make them visually distinguishable, since the title text alone is not unique.
+- `u.data` is tab-delimited, 4 fields per line (`userId`, `itemId`, `rating`, `timestamp`), plain ASCII -- no special decoding needed.
+
+#### **3. File `index.html` - The Application Structure**
+
+- **DOCTYPE and Language:** The document should start with `<!DOCTYPE html>` and the `<html>` tag should specify `lang="en"`.
+- **Title:** The page title should be "Content-Based Movie Recommender".
+- **Main Heading:** Include an `<h1>` with the text "Content-Based Movie Recommender".
+- **Instructions:** Add a `<p>` tag with instructions like, "Select a movie you like, and we'll find similar ones for you!"
+- **Item-to-item controls:** A `<select>` with id `movie-select`, populated dynamically, and a `<button id="recommend-btn">` reading "Get Recommendations" that calls `getRecommendations()`.
+- **Profile controls:** Three `<select>` elements (e.g. `profile-select-1/2/3`), each populated the same way as `movie-select`, plus a `<button id="profile-btn">` reading "Get Profile Recommendations" that calls `getProfileRecommendations()`.
+- **Result Display Area:** Include a `<div>` with the ID `result-box`. Inside this div, add a `<p>` tag with the ID `result`. Both recommendation modes write into this same element.
+- **File Linking:** At the end of the `<body>`, link all three scripts in dependency order:
     ```
+    <script src="recommender.js"></script>
     <script src="data.js"></script>
     <script src="script.js"></script>
     ```
 
-#### **3. File `style.css` - The Application Design**
+#### **4. File `style.css` - The Application Design**
 
--   **Layout:** Create a professional, modern, and user-friendly layout. All content should be centered on the page within a main container.
--   **Background:** The `<body>` should have a light, neutral background color (e.g., `#f4f7f6`).
--   **Container:** The main container holding all elements should have a white background, rounded corners (`border-radius`), and a subtle box shadow to make it pop.
--   **Typography:** Use a clean, sans-serif font like 'Helvetica' or 'Arial'.
--   **Controls:** The `<select>` dropdown and `<button>` should have consistent styling, with adequate padding and a clear visual hierarchy.
--   **Button:** The button should be inviting, with a distinct background color (e.g., a shade of blue), white text, and a hover effect (e.g., slightly darker background) to indicate interactivity.
--   **Result Area:** The `#result-box` should have some padding and a light background to separate it from the controls. The recommendation text inside `#result` should be bold and easy to read.
+- **Layout:** Create a professional, modern, and user-friendly layout. All content should be centered on the page within a main container.
+- **Background:** The `<body>` should have a light, neutral background color (e.g., `#f4f7f6`).
+- **Container:** The main container holding all elements should have a white background, rounded corners (`border-radius`), and a subtle box shadow to make it pop.
+- **Typography:** Use a clean, sans-serif font like 'Helvetica' or 'Arial'.
+- **Controls:** All `<select>` dropdowns and both buttons share consistent styling (e.g. a common `.movie-picker` / `.action-btn` class), with adequate padding and a clear visual hierarchy. Give disabled buttons a visibly muted state.
+- **Result Area:** The `#result-box` should have some padding and a light background to separate it from the controls. The recommendation text inside `#result` should be bold and easy to read.
 
-#### **4. File `data.js` - The Data Handling Module**
+#### **5. File `recommender.js` - Shared parsing and recommendation logic**
 
-This file is responsible only for fetching and parsing the data from local files.
+This file contains **only pure functions and data structures** -- no `fetch`, no `document`, no `window`. It must run unmodified under both a `<script>` tag in the browser and Node's `require()` (export via `module.exports` when available, otherwise attach to the global object), so that an offline analysis script can reuse the exact same formulas the app uses, with zero duplication.
 
-1.  **Global Variables:**
-    -   Declare two global `let` variables, `movies` and `ratings`, initialized as empty arrays.
+1. **`GENRE_NAMES`**: the 18 genre names, Action through Western, in file order (see section 2).
+2. **`parseItemData(text)`**: parse `u.item` text per section 2's field layout. For each line, build `{ id, title, genres, vector }`, where `vector` is the 18-element binary array (in `GENRE_NAMES` order) and `genres` is the filtered list of genre names present.
+3. **`parseRatingData(text)`**: parse `u.data` text into `{ userId, itemId, rating, timestamp }` objects.
+4. **`computeMovieStats(ratings)`**: one pass over ratings, returning a `Map` from `itemId` to `{ count, avg }` (rating count and average rating). This is the popularity signal used for tie-breaking below.
+5. **`cosineSimilarity(a, b)`**: cosine similarity between two equal-length numeric vectors: `dot(a,b) / (||a|| * ||b||)`. If either vector's magnitude is 0, return `0` -- never `NaN`.
+6. **`buildProfileVector(vectors)`**: the elementwise mean of several genre vectors.
+7. **`rankCandidates(allMovies, queryVector, statsMap, excludeIds, topN)`**: score every movie not in `excludeIds` via `cosineSimilarity`, then sort descending by:
+   1. score,
+   2. rating count (from `statsMap`) -- an explicit popularity tie-break, not an accident of array order,
+   3. average rating,
+   4. movie id ascending, as a final deterministic fallback.
+   Return the first `topN`. Document in a comment that the popularity tie-break is a deliberate signal whose effect on long-tail catalog exposure should be measured, not assumed benign.
 
-2.  **Primary Function: `loadData()`**
-    -   This must be an `async` function.
-    -   It will use the `fetch()` API to read `u.item` and `u.data`. Assume these files are in the same directory as `index.html`.
-    -   Implement `try...catch` error handling to manage potential file loading failures. If a file fails to load, display an error message in the `#result` paragraph.
-    -   Inside the `try` block, first `await` the fetch call for `u.item`, convert the response to text, and pass it to the `parseItemData` function.
-    -   Then, `await` the fetch call for `u.data`, convert it to text, and pass it to the `parseRatingData` function.
-    -   The function should implicitly return a `Promise` that resolves when the asynchronous operations are complete.
+#### **6. File `data.js` - Fetching and decoding**
 
-3.  **Parsing Function: `parseItemData(text)`**
-    -   This function takes the raw text from `u.item` as input.
-    -   It should define an array of the 18 genre names (from "Action" to "Western").
-    -   It will split the input text into individual lines. For each line, it will:
-        -   Split the line by the `|` delimiter.
-        -   Extract the movie `id` (field 0) and `title` (field 1).
-        -   Iterate through the last 19 fields to build an array of `genres` for the movie where the value is '1'.
-        -   Create a movie object `{ id, title, genres }` and push it to the global `movies` array.
+1. **Global Variables:** `let movies = []`, `let ratings = []`, `let movieStats = new Map()`.
+2. **`loadData()`** (`async`):
+   - Reset `movies`, `ratings`, and `movieStats` at the top, so the function is safe to call more than once.
+   - `await fetch('u.item')`, decode the response as Latin-1 (`arrayBuffer()` + `TextDecoder('iso-8859-1')`, per section 2), and pass the resulting text to `Recommender.parseItemData`.
+   - `await fetch('u.data')`, decode as text (default UTF-8 is fine -- the file is plain ASCII), and pass it to `Recommender.parseRatingData`.
+   - Compute `movieStats = Recommender.computeMovieStats(ratings)`.
+   - Wrap all of the above in `try...catch`; on failure, display an error message in `#result` and re-throw.
 
-4.  **Parsing Function: `parseRatingData(text)`**
-    -   This function takes the raw text from `u.data` as input.
-    -   It will split the text into lines. For each line, it will:
-        -   Split the line by the `\t` (tab) delimiter.
-        -   Create a rating object `{ userId, itemId, rating, timestamp }` and push it to the global `ratings` array.
+#### **7. File `script.js` - UI wiring**
 
-#### **5. File `script.js` - The UI and Logic Module**
-
-This file handles the user interface and the recommendation logic. It will depend on the data loaded by `data.js`.
-
-1.  **Initialization Logic:**
-    -   Use `window.onload` to create an `async` function that initializes the application.
-    -   Inside this function, `await` the `loadData()` function from `data.js`.
-    -   After the data is successfully loaded, call `populateMoviesDropdown()` and set an initial status message in the result box (e.g., "Data loaded. Please select a movie.").
-
-2.  **UI Function: `populateMoviesDropdown()`**
-    -   This function gets the `<select>` element by its ID.
-    -   It should sort the `movies` array alphabetically by title to improve user experience.
-    -   It will then loop through the sorted `movies` array and create an `<option>` for each movie, setting its `value` to the movie `id` and its `innerText` to the movie `title`.
-
-3.  **Core Logic: `getRecommendations()`**
-    -   This is the main function for content-based filtering, triggered by the button click. It must perform the following steps in order:
-        -   **Step 1 (Get User Input):** Get the `value` of the currently selected option from the `#movie-select` dropdown. This value is the movie ID as a string. Convert it to an integer.
-        -   **Step 2 (Find Liked Movie):** Search the global `movies` array to find the movie object whose `id` matches the selected movie ID. Store this in a `likedMovie` variable. If no movie is found, display an error and exit.
-        -   **Step 3 (Prepare for Similarity):** Create a JavaScript `Set` from the `genres` array of the `likedMovie`. Create a `candidateMovies` array by filtering the global `movies` array to exclude the `likedMovie`.
-        -   **Step 4 (Calculate Scores):** Create a `scoredMovies` array by mapping over the `candidateMovies`. For each `candidateMovie`, calculate the **Jaccard Similarity Index** between its genre set and the `likedMovie`'s genre set. The formula is `(Size of Intersection) / (Size of Union)`. The resulting objects in the new array should be in the format `{...candidate, score: jaccardScore}`.
-        -   **Step 5 (Sort by Score):** Sort the `scoredMovies` array in descending order based on the `score`.
-        -   **Step 6 (Select Top Recommendations):** Take the first two movies from the sorted array using `.slice(0, 2)`.
-        -   **Step 7 (Display Result):** Construct a user-friendly output string (e.g., "Because you liked '[Liked Movie Title]', we recommend: [Movie 1 Title], [Movie 2 Title]") and set it as the `innerText` of the `#result` paragraph.
+1. **Initialization:** `window.onload` is an `async` function that shows a loading message, `await`s `loadData()`, then calls a function that populates every movie `<select>` (the single item-to-item picker and the three profile pickers) from the sorted `movies` array. For any title shared by more than one movie (see section 2), disambiguate the option text (e.g. append the movie id) so the two options are never visually identical.
+2. **`getRecommendations()`** (item-to-item):
+   - Read and validate the selected movie id from `movie-select`; look up `likedMovie`; show an error and stop if not found.
+   - Show a "Calculating..." message, then (after the async UI update) rank candidates via `Recommender.rankCandidates(movies, likedMovie.vector, movieStats, new Set([likedMovie.id]), 5)` and display the Top-5 titles.
+3. **`getProfileRecommendations()`** (profile mode):
+   - Read and validate exactly 3 distinct, found movies from the three profile selects.
+   - Build the profile vector via `Recommender.buildProfileVector`, exclude **all three** selected movies from the candidate pool, rank via `Recommender.rankCandidates`, and display the Top-5 titles.
+4. **Robustness (both modes):**
+   - Keep a module-level pending-timer id; before scheduling a new computation, `clearTimeout` any timer still pending, so a rapid second click cannot let a stale computation overwrite a newer result.
+   - Disable both action buttons while a computation is in flight, and re-enable them on every exit path (success, empty result, and error).
 
 ---
-Please now generate the complete code for the `index.html`, `style.css`, `data.js`, and `script.js` files based on these final, detailed specifications.
+Please now generate the complete code for the `index.html`, `style.css`, `recommender.js`, `data.js`, and `script.js` files based on these final, detailed specifications.
