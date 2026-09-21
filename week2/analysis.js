@@ -65,6 +65,34 @@ function section(title) {
     console.log('='.repeat(72));
 }
 
+function median(numbers) {
+    if (numbers.length === 0) return 0;
+    const sorted = [...numbers].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+// Deterministic PRNG (mulberry32) so section 8's random profile sample is
+// reproducible run-to-run without relying on Math.random.
+function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+        a |= 0;
+        a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function pickDistinctIndices(rng, length, count) {
+    const indices = new Set();
+    while (indices.size < count) {
+        indices.add(Math.floor(rng() * length));
+    }
+    return [...indices];
+}
+
 function main() {
     const { movies, movieStats } = loadCatalog();
 
@@ -115,19 +143,65 @@ function main() {
     console.log('  see ratingCount / avgRating printed with each Top-5 in section 3');
 
     section('6. LONG-TAIL -- share of Top-5 items below the median catalog rating count');
-    const counts = movies
-        .map(m => (movieStats.get(m.id) || { count: 0 }).count)
-        .sort((a, b) => a - b);
-    const mid = Math.floor(counts.length / 2);
-    const median = counts.length % 2 === 0 ? (counts[mid - 1] + counts[mid]) / 2 : counts[mid];
-    console.log(`  catalog median rating count: ${median}`);
+    const catalogMedianRatingCount = median(movies.map(m => (movieStats.get(m.id) || { count: 0 }).count));
+    console.log(`  catalog median rating count: ${catalogMedianRatingCount}`);
 
     function longTailShare(top5, label) {
-        const below = top5.filter(m => m.stats.count < median).length;
+        const below = top5.filter(m => m.stats.count < catalogMedianRatingCount).length;
         console.log(`  ${label}: ${below} / ${top5.length} items below median (${((below / top5.length) * 100).toFixed(0)}%)`);
     }
     longTailShare(item2itemTop5, 'item-to-item Top-5');
     longTailShare(profileTop5, 'profile Top-5');
+
+    section('7. BIAS CHECK -- cosine vs raw dot product for "Toy Story (1995)"');
+    const catalogMeanGenreCount = movies.reduce((sum, m) => sum + m.genres.length, 0) / movies.length;
+    const dotTop5 = Recommender.rankCandidates(
+        movies, toyStory.vector, movieStats, new Set([toyStory.id]), 5, Recommender.dotProduct
+    );
+
+    function printGenreCounts(label, top5) {
+        console.log(label);
+        top5.forEach((movie, i) => {
+            console.log(`  ${i + 1}. [id ${movie.id}] ${movie.title} -- score=${movie.score.toFixed(4)}, genreCount=${movie.genres.length}`);
+        });
+        const meanGenreCount = top5.reduce((sum, m) => sum + m.genres.length, 0) / top5.length;
+        console.log(`  mean genre count of this Top-5: ${meanGenreCount.toFixed(2)}`);
+    }
+
+    printGenreCounts('  Cosine Top-5 (normalized):', item2itemTop5);
+    printGenreCounts('  Raw dot-product Top-5 (unnormalized):', dotTop5);
+    console.log(`  catalog-wide mean genre count (all ${movies.length} movies): ${catalogMeanGenreCount.toFixed(2)}`);
+
+    section('8. CATALOG COVERAGE -- item-to-item (all 1682 queries) vs profile mode (200 sampled profiles)');
+    const itemCoverage = new Set();
+    for (const queryMovie of movies) {
+        const top5 = Recommender.rankCandidates(movies, queryMovie.vector, movieStats, new Set([queryMovie.id]), 5);
+        for (const rec of top5) itemCoverage.add(rec.id);
+    }
+    const itemCoverageCounts = [...itemCoverage].map(id => (movieStats.get(id) || { count: 0 }).count);
+    console.log(
+        `  item-to-item: ${itemCoverage.size} / ${movies.length} distinct movies ever recommended ` +
+        `(${((itemCoverage.size / movies.length) * 100).toFixed(1)}%)`
+    );
+    console.log(`  item-to-item recommended-set median rating count: ${median(itemCoverageCounts)}`);
+
+    const PRNG_SEED = 42;
+    const SAMPLE_SIZE = 200;
+    const rng = mulberry32(PRNG_SEED);
+    const profileCoverage = new Set();
+    for (let i = 0; i < SAMPLE_SIZE; i++) {
+        const sampledMovies = pickDistinctIndices(rng, movies.length, 3).map(idx => movies[idx]);
+        const vec = Recommender.buildProfileVector(sampledMovies.map(m => m.vector));
+        const excl = new Set(sampledMovies.map(m => m.id));
+        const top5 = Recommender.rankCandidates(movies, vec, movieStats, excl, 5);
+        for (const rec of top5) profileCoverage.add(rec.id);
+    }
+    const profileCoverageCounts = [...profileCoverage].map(id => (movieStats.get(id) || { count: 0 }).count);
+    console.log(
+        `  profile mode (seed=${PRNG_SEED}, n=${SAMPLE_SIZE}): ${profileCoverage.size} / ${movies.length} distinct movies ever recommended ` +
+        `(${((profileCoverage.size / movies.length) * 100).toFixed(1)}%)`
+    );
+    console.log(`  profile recommended-set median rating count: ${median(profileCoverageCounts)}`);
 }
 
 main();

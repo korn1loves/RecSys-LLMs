@@ -103,6 +103,15 @@
         return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
+    // Raw dot product (no normalization). Not used by the app itself --
+    // exposed only so analysis.js can demonstrate, with real numbers,
+    // whether an unnormalized score favors movies with more genre tags.
+    function dotProduct(a, b) {
+        let dot = 0;
+        for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+        return dot;
+    }
+
     // Elementwise mean of several genre vectors — the "taste profile" for
     // a user defined by N watched movies.
     function buildProfileVector(vectors) {
@@ -126,12 +135,15 @@
     //      the long-tail check in analysis.js;
     //   3. average rating, descending;
     //   4. movie id, ascending — final deterministic fallback.
-    function rankCandidates(allMovies, queryVector, statsMap, excludeIds, topN) {
+    // `scoreFn` defaults to cosineSimilarity (what the app uses); analysis.js
+    // passes dotProduct instead to compare the two scoring formulas under
+    // otherwise identical ranking/tie-break machinery.
+    function rankCandidates(allMovies, queryVector, statsMap, excludeIds, topN, scoreFn = cosineSimilarity) {
         const scored = allMovies
             .filter(movie => !excludeIds.has(movie.id))
             .map(movie => ({
                 ...movie,
-                score: cosineSimilarity(queryVector, movie.vector),
+                score: scoreFn(queryVector, movie.vector),
                 stats: getStats(statsMap, movie.id)
             }));
 
@@ -151,6 +163,7 @@
         parseRatingData,
         computeMovieStats,
         cosineSimilarity,
+        dotProduct,
         buildProfileVector,
         rankCandidates
     };
