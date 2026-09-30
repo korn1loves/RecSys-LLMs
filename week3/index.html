@@ -28,6 +28,16 @@
                 <div id="item-based-result"><p>Please wait, loading data...</p></div>
             </div>
         </div>
+
+        <h2 class="section-heading">Predict Rating</h2>
+        <p>Pick a user and a movie to see each approach's predicted rating for that pair.</p>
+        <div class="controls">
+            <select id="movie-select">
+                <option value="" disabled selected>Select a movie</option>
+            </select>
+            <button id="predict-btn" onclick="predictRating()">Predict Rating</button>
+        </div>
+        <div id="predict-result" class="result-column"><p>Please wait, loading data...</p></div>
     </div>
 
     <script src="data.js"></script>

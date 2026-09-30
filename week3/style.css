@@ -44,7 +44,8 @@ p {
     margin-bottom: 25px;
 }
 
-#user-select {
+#user-select,
+#movie-select {
     padding: 12px;
     border: 1px solid #ddd;
     border-radius: 5px;
@@ -53,12 +54,14 @@ p {
     transition: border-color 0.3s;
 }
 
-#user-select:focus {
+#user-select:focus,
+#movie-select:focus {
     border-color: #3498db;
     outline: none;
 }
 
-#recommend-btn {
+#recommend-btn,
+#predict-btn {
     padding: 12px 20px;
     background-color: #3498db;
     color: white;
@@ -69,8 +72,21 @@ p {
     transition: background-color 0.3s;
 }
 
-#recommend-btn:hover {
+#recommend-btn:hover,
+#predict-btn:hover {
     background-color: #2980b9;
+}
+
+#recommend-btn:disabled,
+#predict-btn:disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+}
+
+.section-heading {
+    text-align: left;
+    color: #2c3e50;
+    margin-bottom: 10px;
 }
 
 #result-box {
