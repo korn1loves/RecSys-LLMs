@@ -189,3 +189,43 @@ Serve the folder over HTTP (the data layer uses `fetch`, so `file://` will not w
     python3 -m http.server 8000
 
 Then open `http://localhost:8000/index.html`.
+
+---
+
+## Student implementation notes
+
+Implemented: the seven `TODO(hw6)` stubs only (`buildGraph`, `rowNormalize`, `pageRank`, `personalizedPageRank` in `graph.js`; `movieScores`, `recommendTopK`, `recallAtK` in `script.js`), with their JSDoc notes. Added files: `mf_hw5.js`, `compare_hw5_mf.html`, `results/`. `index.html`, `data.js`, `style.css`, the data files and every provided function are unchanged.
+
+### Run instructions
+
+    cd week6
+    python3 -m http.server 8000
+
+1. `http://localhost:8000/index.html` — the assignment page with the provided (instructor) MF reference as method `mf`.
+   Order used for the reported results: **Build graph** → **Run tests** → **Run alpha sweep (validation)** → set the alpha slider to the selected alpha (0.50) → choose user 655 → **Run PageRank** / **Run PPR** → **Evaluate Recall@10 — all four methods** (trains the instructor MF, about 30 s) → **Recommend Top-10** for users 655 and 48 with each method → exports. The 655/48 one-factor demo was produced in the browser console with the provided functions, e.g. `hw6RecordRecommendationRows(655, "ppr", 0.85, hw6WithAlpha(0.85, () => recommendTopK("ppr", 655, 10, "test")))` (likewise 48 @ 0.85 and 655 @ 0.50), because the page's demo button always uses the two smallest cohort ids (1 and 2).
+2. `http://localhost:8000/compare_hw5_mf.html` — same application plus `mf_hw5.js`: it trains the provided instructor MF first, then the student's Homework 5 MF (functions copied verbatim from commit `a65ef5d`, `week5/script.js`; 16 factors, seed 42, Adam 0.01, L2 0.05 on batch rows, batch 64, 20 epochs, best validation-RMSE epoch), and swaps it into `HW6_MF_MODEL`. Wait for “HW5 MF ready” (about 2–3 min), then use the same buttons; method `mf` means HW5 MF on this page.
+
+Exports in `results/`: `verification.json`, `results.csv`, `recommendations.csv` from `index.html`; `*_compare_hw5_mf.*` from `compare_hw5_mf.html` (the `mf` rows there are the HW5 model).
+
+### Dependency versions actually used
+
+TensorFlow.js 4.22.0 (jsDelivr CDN, as in `index.html`), d3 7.9.0 (vendored), Chrome 155 (headless, macOS, Apple M4), backend **webgl** (ANGLE Metal). Python 3 + NumPy 2.1.3 / SciPy 1.15.3 were used only for the independent verification outside the repository. Runtimes were recorded on this one machine and are not comparable across devices.
+
+### Implementation summary
+
+- Graph: users and movies observed in training (943 + 1,611 = 2,554 nodes, no padding), edges = training ratings >= 4.0 (45,602; 1 zero-degree user, 253 zero-degree movies).
+- Propagation: `p_next = alpha * (Q^T p + d v) + (1 - alpha) v`, `p_0 = v`, with `Q^T p` computed from the two blocks `R / user degree` and `R / movie degree` via `tf.matMul` (no square matrix), and the mass `d` on zero-degree nodes returned to `v`. One shared core for PageRank and PPR. L1 stop < 1e-6 or 500 iterations; a cap is reported as not converged.
+- PPR on MovieLens propagates all training users as columns of one batched `matMul` per alpha (each column with its own stopping test) and caches the per-user results; the whole validation sweep takes about 10 s on WebGL.
+- Recommendations: candidate pool = movies in training; test excludes training + validation ratings, validation excludes training ratings; score descending, ties by ascending movie id.
+
+### Known deviations / defects
+
+- **Instructor MF reference is degenerate (High).** Its L2 term penalises every row of both factor matrices on every batch; all factors shrink to ~3.5e-5, every score equals the training mean (3.5806), its Top-10 is the ascending-id order of the eligible movies, and validation RMSE equals the mean-only baseline (1.1830). It is reported as is; the primary MF comparison uses the student HW5 MF (`compare_hw5_mf.html`).
+- **PPR argument contract conflict (High).** The JSDoc of `personalizedPageRank` says “node index”, but the provided adapter and graph view pass raw user ids. Implemented: raw user id on the `GRAPH` path, node index with `opts.transition`, unknown ids throw. A node-index reading would silently seed user id + 1; the provided harness cannot detect this.
+- **Harness blind spots (Medium).** 6 of 14 deliberate mutations pass the 12 provided checks; independent checks were added outside the repository.
+- **Evaluate-button order (Medium).** It computes the test comparison at the current slider alpha before running the validation sweep; run the sweep first and set the slider to the selected alpha.
+- **Two-user demo button (Medium)** always uses users 1 and 2; the 655/48 demo was run with the same provided functions (see above).
+- **float32 non-convergence at alpha = 0.95 (Medium).** 71 of 846 validation users reach the 500-iteration cap on WebGL (L1 residual <= 2.2e-6) and are reported `converged: false`; a float64 recomputation gives identical Top-10 lists and Recall@10. 0.95 was not selected.
+- **`rowNormalize` (Medium)** returns the dense matrix the harness requires; it is used for tests and fixtures only, never for MovieLens propagation (readme 3.5).
+- **Synchronous reads (Low).** The provided adapter needs a synchronous return, so the residual is read with `dataSync()` each iteration.
+- **Smaller notes (Low).** The page shows sparsity 93.71% (padded 944 x 1683 cells; true 93.695%). The no-eligible-user exclusion count also includes the one user without a positive edge. The bottom convergence rows of `results.csv` carry the test cohort size although they are single runs. The provided MF leaves 10 optimizer tensors alive. The selected alpha (0.50) is the smallest value in the prescribed grid.

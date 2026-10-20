@@ -1088,7 +1088,7 @@ function mfScores(userId) {
 /**
  * Extract movie-node scores from a full propagation vector.
  *
- * TODO(hw6): implement this. Readme section 5 requires movie-node scores only.
+ * Task (hw6): implement this. Readme section 5 requires movie-node scores only.
  *
  * Contract:
  *  - `p` is the node-probability vector produced by `pageRank` /
@@ -1105,19 +1105,33 @@ function mfScores(userId) {
  *  - Throw the `TODO(hw6)` error until implemented; do not return zeros, because
  *    a silent zero vector makes every downstream metric look valid when it is not.
  *
+ * Implementation notes (hw6): uses `graph.movieNodes` when it has one entry per
+ * movie, else the users-then-movies offset `nUsers + k`. Throws (never returns
+ * zeros) when the graph is missing or `p` does not have exactly one entry per
+ * graph node, so a wrong-length vector cannot be silently misaligned.
+ *
  * @param {ArrayLike<number>} p Node probabilities, indexed by graph node index.
  * @param {Object} graph        Graph object from `graph.js`.
  * @returns {Float64Array} Movie scores in `graph.movieIds` order.
  */
 function movieScores(p, graph) {
-  // TODO(hw6): select the movie-node entries of `p`, in `graph.movieIds` order.
-  throw new Error("TODO(hw6): movieScores is not implemented yet.");
+  if (!graph || !Array.isArray(graph.movieIds)) throw new Error("movieScores: a graph with movieIds is required");
+  const nodeCount = hw6NodeCount(graph);
+  if (!p || typeof p.length !== "number" || p.length !== nodeCount) {
+    throw new Error("movieScores: expected " + nodeCount + " node scores, got " + (p && p.length));
+  }
+  const nMovies = graph.movieIds.length;
+  const nodes = Array.isArray(graph.movieNodes) && graph.movieNodes.length === nMovies ? graph.movieNodes : null;
+  const offset = Number.isFinite(graph.nUsers) ? Number(graph.nUsers) : hw6UserIds(graph).length;
+  const out = new Float64Array(nMovies);
+  for (let k = 0; k < nMovies; k++) out[k] = Number(p[nodes ? nodes[k] : offset + k]);
+  return out;
 }
 
 /**
  * Recommend the top-K movies for a user with one of the four methods.
  *
- * TODO(hw6): implement this. Readme section 5 defines the rules.
+ * Task (hw6): implement this. Readme section 5 defines the rules.
  *
  * Contract:
  *  - `method` is one of `"popularity"`, `"pagerank"`, `"ppr"`, `"mf"`.
@@ -1141,6 +1155,14 @@ function movieScores(p, graph) {
  *    no eligible candidate.
  *  - PPR scores are walk probabilities: never present them as ratings.
  *
+ * Implementation notes (hw6): scores come from the provided `hw6ScoreVector`
+ * (candidate-aligned, alpha read from the `#alpha` slider). Candidates with a
+ * non-finite score (`-Infinity` = the method could not place the movie) are
+ * dropped rather than tie-broken into the list. Errors from the propagation
+ * layer (no graph built, unknown PPR user) are NOT swallowed: they propagate so
+ * the panel shows the reason instead of an empty list. Zero scores are kept
+ * (they are finite); the renderer flags them as unproven filler.
+ *
  * @param {"popularity"|"pagerank"|"ppr"|"mf"} method
  * @param {number} userId Raw user id.
  * @param {number} [K=10]
@@ -1148,14 +1170,38 @@ function movieScores(p, graph) {
  * @returns {RecommendedMovie[]}
  */
 function recommendTopK(method, userId, K, split) {
-  // TODO(hw6): filter the candidate pool, sort by score desc / id asc, slice to K.
-  throw new Error("TODO(hw6): recommendTopK is not implemented yet.");
+  const k = K === undefined || K === null ? HW6_K : Math.floor(Number(K));
+  if (!(k > 0)) return [];
+  if (["popularity", "pagerank", "ppr", "mf"].indexOf(method) === -1) return [];
+  const name = split === "val" ? "val" : "test";
+  const uid = Number(userId);
+  const vector = hw6ScoreVector(method, uid, hw6ReadAlpha(), name);
+  const ids = vector.movieIds;
+  const scores = vector.scores;
+  const excluded = hw6ExclusionSet(name, uid);
+  const eligible = [];
+  for (let i = 0; i < ids.length; i++) {
+    if (excluded.has(ids[i])) continue;
+    if (!Number.isFinite(scores[i])) continue;
+    eligible.push(i);
+  }
+  eligible.sort(function (x, y) { return scores[y] - scores[x] || ids[x] - ids[y]; });
+  return eligible.slice(0, k).map(function (i) {
+    const movieId = ids[i];
+    return {
+      movieId: movieId,
+      title: hw6Title(movieId),
+      genres: hw6Genres(movieId),
+      score: scores[i],
+      popularity: hw6PopularityOf(movieId),
+    };
+  });
 }
 
 /**
  * Recall@K for one method over the shared evaluation cohort.
  *
- * TODO(hw6): implement this. Readme sections 7.1 and 7.2 define the protocol.
+ * Task (hw6): implement this. Readme sections 7.1 and 7.2 define the protocol.
  *
  * Contract:
  *  - Cohort: use `hw6SharedCohort(split)` so all four methods report the exact
@@ -1175,14 +1221,50 @@ function recommendTopK(method, userId, K, split) {
  *      `perUser` `[{ userId, relevant, hit }]` for cohort users only.
  *  - Never compute rating RMSE here: PPR outputs are not ratings.
  *
+ * Implementation notes (hw6): the relevant set per user is rebuilt here from
+ * `HW6_STATE.gradesBySplit` with the same three conditions `hw6SharedCohort`
+ * uses, so every cohort user has `relevant >= 1` and the division is safe.
+ * `excludedUnseen` / `excludedNoEligible` are taken from the provided
+ * `hw6CohortExclusions(split)` so the panel and the CSV agree. Note that
+ * `excludedUnseen` counts (user, movie) relevant pairs over all training
+ * users, and that `excludedNoEligible` already includes users without a
+ * positive training edge (MovieLens: user 685 is in both counts).
+ *
  * @param {"popularity"|"pagerank"|"ppr"|"mf"} method
  * @param {number} [K=10]
  * @param {"val"|"test"} [split="test"]
  * @returns {RecallReport}
  */
 function recallAtK(method, K, split) {
-  // TODO(hw6): macro-average Recall@K over the shared cohort, with exclusions.
-  throw new Error("TODO(hw6): recallAtK is not implemented yet.");
+  const k = K === undefined || K === null ? HW6_K : Math.floor(Number(K));
+  const name = split === "val" ? "val" : "test";
+  const cohort = hw6SharedCohort(name);
+  const exclusions = hw6CohortExclusions(name);
+  const perUser = [];
+  let sum = 0;
+  for (let c = 0; c < cohort.length; c++) {
+    const userId = cohort[c];
+    const excluded = hw6ExclusionSet(name, userId);
+    const relevant = new Set();
+    const grades = HW6_STATE.gradesBySplit[name].get(userId);
+    if (grades) {
+      grades.forEach(function (rating, movieId) {
+        if (rating >= 4.0 && HW6_STATE.candidateSet.has(movieId) && !excluded.has(movieId)) relevant.add(movieId);
+      });
+    }
+    const recs = recommendTopK(method, userId, k, name);
+    let hit = 0;
+    for (let r = 0; r < recs.length; r++) if (relevant.has(recs[r].movieId)) hit++;
+    perUser.push({ userId: userId, relevant: relevant.size, hit: hit });
+    if (relevant.size > 0) sum += hit / relevant.size;
+  }
+  return {
+    recall: cohort.length ? sum / cohort.length : 0,
+    cohort: cohort.slice(),
+    excludedUnseen: exclusions.excludedUnseen,
+    excludedNoEligible: exclusions.excludedNoEligible,
+    perUser: perUser,
+  };
 }
 
 // ---------------------------------------------------------------------------

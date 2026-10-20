@@ -1,0 +1,21 @@
+user_id,method,alpha,rank,movie_id,title,genres,score,training_popularity
+655,mf,,1,1500,Santa with Muscles (1996),Comedy,4.744952201843262,2
+655,mf,,2,74,Faster Pussycat! Kill! Kill! (1965),Action;Comedy;Drama,4.501747131347656,2
+655,mf,,3,641,Paths of Glory (1957),Drama;War,4.357128143310547,25
+655,mf,,4,1463,"Boys, Les (1997)",Comedy,4.310022354125977,2
+655,mf,,5,851,Two or Three Things I Know About Her (1966),Drama,4.240690231323242,2
+655,mf,,6,394,Radioland Murders (1994),Comedy;Mystery;Romance,4.237993240356445,6
+655,mf,,7,1142,When We Were Kings (1996),Documentary,4.234960556030273,29
+655,mf,,8,1536,Aiqing wansui (1994),Drama,4.210719585418701,1
+655,mf,,9,599,Police Story 4: Project S (Chao ji ji hua) (1993),Action,4.205780982971191,0
+655,mf,,10,868,Hearts and Minds (1996),Drama,4.198861122131348,3
+48,mf,,1,1449,Pather Panchali (1955),Drama,4.37788200378418,7
+48,mf,,2,868,Hearts and Minds (1996),Drama,4.302371025085449,3
+48,mf,,3,1495,Flirt (1995),Drama,4.288309574127197,1
+48,mf,,4,661,High Noon (1952),Western,4.276863098144531,57
+48,mf,,5,1558,Aparajito (1956),Drama,4.2707319259643555,4
+48,mf,,6,1142,When We Were Kings (1996),Documentary,4.263877868652344,29
+48,mf,,7,1062,Four Days in September (1997),Drama,4.234043121337891,4
+48,mf,,8,192,Raging Bull (1980),Drama,4.231234550476074,84
+48,mf,,9,127,"Godfather, The (1972)",Action;Crime;Drama,4.208166122436523,308
+48,mf,,10,74,Faster Pussycat! Kill! Kill! (1965),Action;Comedy;Drama,4.189261436462402,2
